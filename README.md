@@ -12,18 +12,39 @@ A lightweight Go agent that runs on your servers to enable Antidote's self-heali
 
 ## Installation
 
-### From Binary
+### Quick Install (Recommended)
 
-Download the latest release for your platform:
+```bash
+curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | bash
+```
+
+This will:
+- Download the correct binary for your platform
+- Prompt for your Antidote token and endpoint
+- Create the config file at `/etc/antidote/antidote.yml`
+- Optionally set up a systemd service (Linux)
+
+**Non-interactive install:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | \
+  ANTIDOTE_TOKEN=ant_xxx \
+  ANTIDOTE_ENDPOINT=wss://antidote.yourdomain.com/agent/ws \
+  SERVER_NAME=my-server \
+  bash
+```
+
+### Manual Download
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/davekiss/antidote-agent/releases):
 
 ```bash
 # Linux (amd64)
-curl -fsSL https://github.com/codebasehealth/antidote-agent/releases/latest/download/antidote-agent-linux-amd64 -o antidote-agent
+curl -fsSL https://github.com/davekiss/antidote-agent/releases/latest/download/antidote-agent-linux-amd64 -o antidote-agent
 chmod +x antidote-agent
 sudo mv antidote-agent /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -fsSL https://github.com/codebasehealth/antidote-agent/releases/latest/download/antidote-agent-darwin-arm64 -o antidote-agent
+curl -fsSL https://github.com/davekiss/antidote-agent/releases/latest/download/antidote-agent-darwin-arm64 -o antidote-agent
 chmod +x antidote-agent
 sudo mv antidote-agent /usr/local/bin/
 ```
@@ -31,7 +52,7 @@ sudo mv antidote-agent /usr/local/bin/
 ### From Source
 
 ```bash
-git clone https://github.com/codebasehealth/antidote-agent.git
+git clone https://github.com/davekiss/antidote-agent.git
 cd antidote-agent
 make build
 ```

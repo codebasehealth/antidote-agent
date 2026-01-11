@@ -2,6 +2,22 @@
 
 Lightweight Go agent that runs on customer servers to enable Antidote's self-healing capabilities. Maintains a persistent WebSocket connection to the Antidote service and executes pre-defined commands.
 
+## Installation
+
+**Quick install (on target server):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | bash
+```
+
+**Non-interactive:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | \
+  ANTIDOTE_TOKEN=ant_xxx \
+  ANTIDOTE_ENDPOINT=wss://antidote.codebasehealth.com/agent/ws \
+  SERVER_NAME=my-server \
+  bash
+```
+
 ## Build & Test
 
 ```bash
