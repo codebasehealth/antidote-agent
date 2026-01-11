@@ -15,7 +15,7 @@ A lightweight Go agent that runs on your servers to enable Antidote's self-heali
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/codebasehealth/antidote-agent/main/scripts/install.sh | bash
 ```
 
 This will:
@@ -26,7 +26,7 @@ This will:
 
 **Non-interactive install:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/codebasehealth/antidote-agent/main/scripts/install.sh | \
   ANTIDOTE_TOKEN=ant_xxx \
   ANTIDOTE_ENDPOINT=wss://antidote.yourdomain.com/agent/ws \
   SERVER_NAME=my-server \
@@ -35,16 +35,16 @@ curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/script
 
 ### Manual Download
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/davekiss/antidote-agent/releases):
+Download the latest release for your platform from [GitHub Releases](https://github.com/codebasehealth/antidote-agent/releases):
 
 ```bash
 # Linux (amd64)
-curl -fsSL https://github.com/davekiss/antidote-agent/releases/latest/download/antidote-agent-linux-amd64 -o antidote-agent
+curl -fsSL https://github.com/codebasehealth/antidote-agent/releases/latest/download/antidote-agent-linux-amd64 -o antidote-agent
 chmod +x antidote-agent
 sudo mv antidote-agent /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -fsSL https://github.com/davekiss/antidote-agent/releases/latest/download/antidote-agent-darwin-arm64 -o antidote-agent
+curl -fsSL https://github.com/codebasehealth/antidote-agent/releases/latest/download/antidote-agent-darwin-arm64 -o antidote-agent
 chmod +x antidote-agent
 sudo mv antidote-agent /usr/local/bin/
 ```
@@ -52,7 +52,7 @@ sudo mv antidote-agent /usr/local/bin/
 ### From Source
 
 ```bash
-git clone https://github.com/davekiss/antidote-agent.git
+git clone https://github.com/codebasehealth/antidote-agent.git
 cd antidote-agent
 make build
 ```

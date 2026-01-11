@@ -2,10 +2,10 @@
 set -e
 
 # Antidote Agent Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/davekiss/antidote-agent/main/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/codebasehealth/antidote-agent/main/scripts/install.sh | bash
 # Or with token: curl -fsSL ... | ANTIDOTE_TOKEN=ant_xxx ANTIDOTE_ENDPOINT=wss://... bash
 
-REPO="davekiss/antidote-agent"
+REPO="codebasehealth/antidote-agent"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/antidote"
 BINARY_NAME="antidote-agent"
