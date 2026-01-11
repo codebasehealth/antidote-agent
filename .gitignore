@@ -27,3 +27,4 @@ Thumbs.db
 
 # Config with secrets
 antidote.yml
+antidote.test.yml
