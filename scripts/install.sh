@@ -180,9 +180,14 @@ setup_systemd() {
         return
     fi
 
-    echo ""
-    read -p "Set up systemd service to run agent on boot? [Y/n]: " SETUP_SERVICE
-    SETUP_SERVICE=${SETUP_SERVICE:-Y}
+    # Auto-setup in non-interactive mode (when ANTIDOTE_TOKEN was provided via env)
+    if [ -n "$NONINTERACTIVE" ]; then
+        SETUP_SERVICE="Y"
+    else
+        echo ""
+        read -p "Set up systemd service to run agent on boot? [Y/n]: " SETUP_SERVICE
+        SETUP_SERVICE=${SETUP_SERVICE:-Y}
+    fi
 
     if [[ ! "$SETUP_SERVICE" =~ ^[Yy]$ ]]; then
         info "Skipping systemd setup. Run manually with: antidote-agent --config=/etc/antidote/antidote.yml"
@@ -223,6 +228,11 @@ WantedBy=multi-user.target
 
 # Main
 main() {
+    # Detect non-interactive mode (env vars provided)
+    if [ -n "$ANTIDOTE_TOKEN" ]; then
+        NONINTERACTIVE=1
+    fi
+
     echo ""
     echo "  ___        _   _     _       _"
     echo " / _ \      | | (_)   | |     | |"
@@ -243,10 +253,18 @@ main() {
     echo ""
     success "Antidote Agent installation complete!"
     echo ""
-    echo "Next steps:"
-    echo "  1. Edit ${CONFIG_DIR}/antidote.yml to customize actions"
-    echo "  2. Ensure your server is registered in Antidote dashboard"
-    echo "  3. Agent will connect automatically on next restart"
+    if [ -n "$NONINTERACTIVE" ] && [ "$OS" = "linux" ]; then
+        echo "The agent is now running and will start automatically on boot."
+        echo ""
+        info "Useful commands:"
+        echo "  sudo systemctl status antidote-agent   # Check status"
+        echo "  sudo journalctl -u antidote-agent -f   # View logs"
+    else
+        echo "Next steps:"
+        echo "  1. Edit ${CONFIG_DIR}/antidote.yml to customize actions"
+        echo "  2. Ensure your server is registered in Antidote dashboard"
+        echo "  3. Start the agent or reboot to connect"
+    fi
     echo ""
 }
 
