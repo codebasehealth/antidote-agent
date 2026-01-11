@@ -112,6 +112,18 @@ create_config() {
         fi
     fi
 
+    if [ -z "$APP_DIR" ]; then
+        # Try to detect Laravel app directory
+        if [ -d "/home/forge" ]; then
+            DETECTED_DIR=$(find /home/forge -maxdepth 2 -name "artisan" -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+        fi
+        APP_DIR="${DETECTED_DIR:-/var/www/html}"
+        read -p "Enter app directory [$APP_DIR]: " INPUT_DIR
+        if [ -n "$INPUT_DIR" ]; then
+            APP_DIR="$INPUT_DIR"
+        fi
+    fi
+
     info "Creating config directory..."
     if [ -w "$(dirname $CONFIG_DIR)" ]; then
         mkdir -p "$CONFIG_DIR"
@@ -137,21 +149,25 @@ actions:
     description: \"Put application in maintenance mode\"
     command: \"php artisan down\"
     timeout: 30s
+    working_dir: \"${APP_DIR}\"
 
   artisan_up:
     description: \"Bring application out of maintenance mode\"
     command: \"php artisan up\"
     timeout: 30s
+    working_dir: \"${APP_DIR}\"
 
   restart_queue:
     description: \"Restart queue workers\"
     command: \"php artisan queue:restart\"
     timeout: 30s
+    working_dir: \"${APP_DIR}\"
 
   clear_cache:
     description: \"Clear all caches\"
     command: \"php artisan cache:clear && php artisan config:clear && php artisan view:clear\"
     timeout: 60s
+    working_dir: \"${APP_DIR}\"
 
   restart_php:
     description: \"Restart PHP-FPM\"
@@ -219,11 +235,6 @@ WantedBy=multi-user.target
     sudo systemctl start antidote-agent
 
     success "Service installed and started!"
-    echo ""
-    info "Useful commands:"
-    echo "  sudo systemctl status antidote-agent   # Check status"
-    echo "  sudo systemctl restart antidote-agent  # Restart"
-    echo "  sudo journalctl -u antidote-agent -f   # View logs"
 }
 
 # Main
