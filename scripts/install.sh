@@ -113,11 +113,7 @@ create_config() {
     fi
 
     if [ -z "$APP_DIR" ]; then
-        # Try to detect Laravel app directory
-        if [ -d "/home/forge" ]; then
-            DETECTED_DIR=$(find /home/forge -maxdepth 2 -name "artisan" -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
-        fi
-        APP_DIR="${DETECTED_DIR:-/var/www/html}"
+        APP_DIR="/var/www/html"
         read -p "Enter app directory [$APP_DIR]: " INPUT_DIR
         if [ -n "$INPUT_DIR" ]; then
             APP_DIR="$INPUT_DIR"
@@ -145,39 +141,31 @@ connection:
     max_delay: 30s
 
 actions:
-  artisan_down:
-    description: \"Put application in maintenance mode\"
-    command: \"php artisan down\"
-    timeout: 30s
-    working_dir: \"${APP_DIR}\"
-
-  artisan_up:
-    description: \"Bring application out of maintenance mode\"
-    command: \"php artisan up\"
-    timeout: 30s
-    working_dir: \"${APP_DIR}\"
-
-  restart_queue:
-    description: \"Restart queue workers\"
-    command: \"php artisan queue:restart\"
-    timeout: 30s
-    working_dir: \"${APP_DIR}\"
-
-  clear_cache:
-    description: \"Clear all caches\"
-    command: \"php artisan cache:clear && php artisan config:clear && php artisan view:clear\"
+  # Generic actions - customize for your stack
+  restart_app:
+    description: \"Restart the application\"
+    command: \"echo 'Configure this action for your app'\"
     timeout: 60s
     working_dir: \"${APP_DIR}\"
 
-  restart_php:
-    description: \"Restart PHP-FPM\"
-    command: \"sudo systemctl restart php8.2-fpm\"
-    timeout: 30s
+  health_check:
+    description: \"Check application health\"
+    command: \"curl -sf http://localhost/health || curl -sf http://localhost:3000/health || echo 'OK'\"
+    timeout: 10s
 
+  # System actions
   restart_nginx:
     description: \"Restart Nginx\"
     command: \"sudo systemctl restart nginx\"
     timeout: 30s
+
+  restart_service:
+    description: \"Restart a systemd service\"
+    command: \"sudo systemctl restart \\\${SERVICE_NAME}\"
+    timeout: 30s
+
+  # Add your own actions below
+  # See: https://github.com/codebasehealth/antidote-agent#actions
 "
 
     if [ -w "$CONFIG_DIR" ] 2>/dev/null; then
