@@ -1,0 +1,70 @@
+# Antidote Agent Configuration
+# Copy this file to antidote.yml and customize for your environment
+
+server:
+  # Unique name for this server (shows in dashboard)
+  name: "production-web-1"
+  # Environment tag for grouping
+  environment: "production"
+  # Additional metadata
+  tags:
+    region: "us-east-1"
+    role: "web"
+
+connection:
+  # Antidote WebSocket endpoint
+  endpoint: "wss://your-app.test:8081/agent/ws"
+  # Authentication token from Antidote dashboard
+  # Use environment variable for security
+  token: "${ANTIDOTE_TOKEN}"
+  # Heartbeat interval
+  heartbeat: 30s
+  # Reconnection settings
+  reconnect:
+    initial_delay: 1s
+    max_delay: 30s
+    multiplier: 2
+
+# Pre-defined actions that can be triggered by Antidote
+actions:
+  # Rollback to previous deployment
+  rollback:
+    description: "Rollback to previous deployment"
+    command: |
+      cd /app
+      git fetch origin
+      git checkout ${COMMIT:-HEAD~1}
+      npm ci --production
+      pm2 restart all
+    timeout: 180s
+    working_dir: "/app"
+    env:
+      NODE_ENV: "production"
+
+  # Restart application
+  restart:
+    description: "Restart application process"
+    command: "pm2 restart all"
+    timeout: 30s
+
+  # Health check
+  health_check:
+    description: "Check application health"
+    command: "curl -sf http://localhost:3000/health"
+    timeout: 10s
+
+  # Clear caches
+  clear_cache:
+    description: "Clear application caches"
+    command: |
+      redis-cli FLUSHDB
+      pm2 restart all
+    timeout: 30s
+
+# Log file configuration (for log streaming)
+logs:
+  paths:
+    - path: "/app/logs/*.log"
+      type: "application"
+    - path: "/var/log/nginx/error.log"
+      type: "nginx"
