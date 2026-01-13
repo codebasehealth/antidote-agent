@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -343,21 +344,29 @@ func analyzeApp(path string) *messages.AppInfo {
 
 // readAntidoteConfig reads and parses an antidote.yml file
 func readAntidoteConfig(path string) *messages.AppConfig {
+	log.Printf("Checking for config at: %s", path)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("No config file at %s: %v", path, err)
 		return nil
 	}
 
+	log.Printf("Found config file at %s (%d bytes)", path, len(data))
+
 	var config messages.AppConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
+		log.Printf("Failed to parse config at %s: %v", path, err)
 		return nil
 	}
 
 	// Validate minimum required fields
 	if config.App.Name == "" || config.App.Framework == "" {
+		log.Printf("Config at %s missing required fields (name=%q, framework=%q)", path, config.App.Name, config.App.Framework)
 		return nil
 	}
 
+	log.Printf("Successfully loaded config for %s (%s)", config.App.Name, config.App.Framework)
 	return &config
 }
 
