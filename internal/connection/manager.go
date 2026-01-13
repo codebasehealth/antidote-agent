@@ -15,10 +15,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	// Version is the agent version
-	Version = "2.0.0"
+// Version is set at build time via ldflags
+var Version = "dev"
 
+const (
 	// Connection states
 	StateDisconnected = "disconnected"
 	StateConnecting   = "connecting"

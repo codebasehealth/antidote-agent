@@ -45,15 +45,15 @@ func Discover() *messages.DiscoveryMessage {
 	// Apps
 	msg.Apps = discoverApps()
 
-	// Log apps with configs
+	// Log discovery summary
 	appsWithConfig := 0
 	for _, app := range msg.Apps {
 		if app.Config != nil {
 			appsWithConfig++
-			log.Printf("App %s has config: %+v", app.Path, app.Config.App)
 		}
 	}
-	log.Printf("Discovery complete: %d apps total, %d with config", len(msg.Apps), appsWithConfig)
+	log.Printf("Discovery: %d apps (%d with config), %d services, %d languages",
+		len(msg.Apps), appsWithConfig, len(msg.Services), len(msg.Languages))
 
 	// Docker
 	msg.Docker = discoverDocker()
@@ -311,7 +311,6 @@ func analyzeApp(path string) *messages.AppInfo {
 	if config := readAntidoteConfig(configPath); config != nil {
 		app.Config = config
 		app.Framework = config.App.Framework
-		log.Printf("Assigned config to app at %s: actions=%d, deny=%d", path, len(config.Actions), len(config.Deny))
 	} else {
 		// Auto-detect framework if no config
 		if _, err := os.Stat(filepath.Join(path, "artisan")); err == nil {
@@ -355,29 +354,23 @@ func analyzeApp(path string) *messages.AppInfo {
 
 // readAntidoteConfig reads and parses an antidote.yml file
 func readAntidoteConfig(path string) *messages.AppConfig {
-	log.Printf("Checking for config at: %s", path)
-
 	data, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("No config file at %s: %v", path, err)
 		return nil
 	}
 
-	log.Printf("Found config file at %s (%d bytes)", path, len(data))
-
 	var config messages.AppConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Printf("Failed to parse config at %s: %v", path, err)
+		log.Printf("Failed to parse antidote.yml at %s: %v", path, err)
 		return nil
 	}
 
 	// Validate minimum required fields
 	if config.App.Name == "" || config.App.Framework == "" {
-		log.Printf("Config at %s missing required fields (name=%q, framework=%q)", path, config.App.Name, config.App.Framework)
+		log.Printf("Invalid antidote.yml at %s: missing name or framework", path)
 		return nil
 	}
 
-	log.Printf("Successfully loaded config for %s (%s)", config.App.Name, config.App.Framework)
 	return &config
 }
 
