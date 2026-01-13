@@ -7,17 +7,19 @@ import (
 
 // Message types for agent-cloud protocol
 const (
-	TypeAuth      = "auth"
-	TypeAuthOK    = "auth_ok"
-	TypeAuthError = "auth_error"
-	TypeDiscover  = "discover"
-	TypeDiscovery = "discovery"
-	TypeCommand   = "command"
-	TypeOutput    = "output"
-	TypeComplete  = "complete"
-	TypeRejected  = "rejected"
-	TypeHealth    = "health"
-	TypeHeartbeat = "heartbeat"
+	TypeAuth             = "auth"
+	TypeAuthOK           = "auth_ok"
+	TypeAuthError        = "auth_error"
+	TypeDiscover         = "discover"
+	TypeDiscovery        = "discovery"
+	TypeCommand          = "command"
+	TypeOutput           = "output"
+	TypeComplete         = "complete"
+	TypeRejected         = "rejected"
+	TypeHealth           = "health"
+	TypeHeartbeat        = "heartbeat"
+	TypeMonitoringConfig = "monitoring_config"
+	TypeErrorEvent       = "error_event"
 )
 
 // BaseMessage contains common fields
@@ -281,4 +283,58 @@ func ParseMessage(data []byte) (string, error) {
 		return "", err
 	}
 	return base.Type, nil
+}
+
+// MonitoringConfigMessage - cloud sends monitoring configuration to agent
+type MonitoringConfigMessage struct {
+	Type string                   `json:"type"`
+	Apps []MonitoringAppConfig    `json:"apps"`
+}
+
+// MonitoringAppConfig - configuration for monitoring a single app
+type MonitoringAppConfig struct {
+	RepoFullName  string   `json:"repo_full_name"`
+	Framework     string   `json:"framework,omitempty"`
+	LogPaths      []string `json:"log_paths"`
+	ErrorPatterns []string `json:"error_patterns"`
+	ContextLines  int      `json:"context_lines"`
+}
+
+func ParseMonitoringConfigMessage(data []byte) (*MonitoringConfigMessage, error) {
+	var msg MonitoringConfigMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// ErrorEventMessage - agent reports an error event from log monitoring
+type ErrorEventMessage struct {
+	Type            string   `json:"type"`
+	AppPath         string   `json:"app_path"`
+	RepoFullName    string   `json:"repo_full_name,omitempty"`
+	Source          string   `json:"source"`
+	Timestamp       string   `json:"timestamp"`
+	ErrorLine       string   `json:"error_line"`
+	ContextBefore   []string `json:"context_before"`
+	ContextAfter    []string `json:"context_after"`
+	OccurrenceCount int      `json:"occurrence_count"`
+	FirstSeen       string   `json:"first_seen"`
+	SignatureHash   string   `json:"signature_hash"`
+}
+
+func NewErrorEventMessage(appPath, repoFullName, source, errorLine string, contextBefore, contextAfter []string, occurrenceCount int, firstSeen, signatureHash string) *ErrorEventMessage {
+	return &ErrorEventMessage{
+		Type:            TypeErrorEvent,
+		AppPath:         appPath,
+		RepoFullName:    repoFullName,
+		Source:          source,
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		ErrorLine:       errorLine,
+		ContextBefore:   contextBefore,
+		ContextAfter:    contextAfter,
+		OccurrenceCount: occurrenceCount,
+		FirstSeen:       firstSeen,
+		SignatureHash:   signatureHash,
+	}
 }

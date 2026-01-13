@@ -173,6 +173,7 @@ func main() {
 	cancel()
 
 	// Stop components
+	msgRouter.Stop()
 	healthMon.Stop()
 	connMgr.Stop()
 

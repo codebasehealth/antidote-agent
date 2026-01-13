@@ -6,6 +6,7 @@ import (
 
 	"github.com/codebasehealth/antidote-agent/internal/discovery"
 	"github.com/codebasehealth/antidote-agent/internal/executor"
+	"github.com/codebasehealth/antidote-agent/internal/logmonitor"
 	"github.com/codebasehealth/antidote-agent/internal/messages"
 	"github.com/codebasehealth/antidote-agent/internal/security"
 	"github.com/codebasehealth/antidote-agent/internal/signing"
@@ -16,10 +17,21 @@ type SendFunc func(msg interface{}) error
 
 // Router routes incoming messages to appropriate handlers
 type Router struct {
-	executor  *executor.Executor
-	validator *security.Validator
-	verifier  *signing.Verifier
-	send      SendFunc
+	executor          *executor.Executor
+	validator         *security.Validator
+	verifier          *signing.Verifier
+	logMonitor        *logmonitor.Monitor
+	discoveryProvider *discoveryProvider
+	send              SendFunc
+}
+
+// discoveryProvider implements logmonitor.AppDiscovery
+type discoveryProvider struct {
+	apps []messages.AppInfo
+}
+
+func (p *discoveryProvider) GetApps() []messages.AppInfo {
+	return p.apps
 }
 
 // NewRouter creates a new message router
@@ -49,6 +61,11 @@ func NewRouter(send SendFunc, publicKey string) *Router {
 		r.validator,
 	)
 
+	// Create discovery provider and log monitor
+	r.discoveryProvider = &discoveryProvider{}
+	r.logMonitor = logmonitor.NewMonitor(logmonitor.SendFunc(send), r.discoveryProvider)
+	r.logMonitor.Start()
+
 	return r
 }
 
@@ -59,6 +76,8 @@ func (r *Router) Handle(msgType string, data []byte) {
 		r.handleCommand(data)
 	case messages.TypeDiscover:
 		r.handleDiscover()
+	case messages.TypeMonitoringConfig:
+		r.handleMonitoringConfig(data)
 	case messages.TypeAuthOK, messages.TypeAuthError:
 		// Already handled by connection manager
 	default:
@@ -145,6 +164,12 @@ func (r *Router) handleDiscover() {
 		log.Printf("Security validator updated with %d apps", len(discoveryMsg.Apps))
 	}
 
+	// Update discovery provider for log monitor
+	if r.discoveryProvider != nil {
+		r.discoveryProvider.apps = discoveryMsg.Apps
+		log.Printf("Discovery provider updated with %d apps", len(discoveryMsg.Apps))
+	}
+
 	if err := r.send(discoveryMsg); err != nil {
 		log.Printf("Failed to send discovery: %v", err)
 	} else {
@@ -177,7 +202,34 @@ func (r *Router) handleRejected(msg *messages.RejectedMessage) {
 	}
 }
 
+// handleMonitoringConfig processes monitoring configuration from the cloud
+func (r *Router) handleMonitoringConfig(data []byte) {
+	configMsg, err := messages.ParseMonitoringConfigMessage(data)
+	if err != nil {
+		log.Printf("Failed to parse monitoring config: %v", err)
+		return
+	}
+
+	log.Printf("Received monitoring config with %d apps", len(configMsg.Apps))
+
+	if r.logMonitor != nil {
+		r.logMonitor.UpdateConfig(configMsg)
+	}
+}
+
 // Executor returns the executor
 func (r *Router) Executor() *executor.Executor {
 	return r.executor
+}
+
+// LogMonitor returns the log monitor
+func (r *Router) LogMonitor() *logmonitor.Monitor {
+	return r.logMonitor
+}
+
+// Stop stops the router and its components
+func (r *Router) Stop() {
+	if r.logMonitor != nil {
+		r.logMonitor.Stop()
+	}
 }
