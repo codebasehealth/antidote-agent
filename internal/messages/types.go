@@ -15,6 +15,7 @@ const (
 	TypeCommand   = "command"
 	TypeOutput    = "output"
 	TypeComplete  = "complete"
+	TypeRejected  = "rejected"
 	TypeHealth    = "health"
 	TypeHeartbeat = "heartbeat"
 )
@@ -213,6 +214,25 @@ func NewCompleteMessage(id string, exitCode int, durationMs int64) *CompleteMess
 		ExitCode:   exitCode,
 		DurationMs: durationMs,
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// RejectedMessage - agent rejects a command for security reasons
+type RejectedMessage struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Code      string `json:"code"`    // Error code (e.g., COMMAND_DENIED, PATH_TRAVERSAL)
+	Message   string `json:"message"` // Human-readable error message
+	Timestamp string `json:"timestamp"`
+}
+
+func NewRejectedMessage(id, code, message string) *RejectedMessage {
+	return &RejectedMessage{
+		Type:      TypeRejected,
+		ID:        id,
+		Code:      code,
+		Message:   message,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

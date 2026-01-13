@@ -22,6 +22,7 @@ var (
 	showVersion = flag.Bool("version", false, "Show version and exit")
 	selfUpdate  = flag.Bool("self-update", false, "Update to the latest version")
 	checkUpdate = flag.Bool("check-update", false, "Check if an update is available")
+	autoUpdate  = flag.Bool("auto-update", false, "Auto-update on startup if available (or ANTIDOTE_AUTO_UPDATE env)")
 )
 
 func main() {
@@ -69,6 +70,37 @@ func main() {
 			fmt.Println("  sudo systemctl restart antidote-agent")
 		}
 		os.Exit(0)
+	}
+
+	// Check for auto-update from flag or env
+	shouldAutoUpdate := *autoUpdate
+	if !shouldAutoUpdate {
+		shouldAutoUpdate = os.Getenv("ANTIDOTE_AUTO_UPDATE") == "true" || os.Getenv("ANTIDOTE_AUTO_UPDATE") == "1"
+	}
+
+	if shouldAutoUpdate {
+		log.Printf("Auto-update enabled, checking for updates (current: %s)...", connection.Version)
+
+		result, err := updater.CheckForUpdate()
+		if err != nil {
+			log.Printf("Warning: Failed to check for updates: %v", err)
+		} else if result.UpdateAvailable {
+			log.Printf("Update available: %s -> %s", result.CurrentVersion, result.LatestVersion)
+			log.Println("Downloading update...")
+
+			updateResult, err := updater.SelfUpdate()
+			if err != nil {
+				log.Printf("Warning: Auto-update failed: %v", err)
+			} else if updateResult.Updated {
+				log.Printf("Successfully updated to %s", updateResult.LatestVersion)
+				log.Println("Exiting for restart...")
+				// Exit with code 0 so systemd can restart the service
+				// The new binary will be used on next start
+				os.Exit(0)
+			}
+		} else {
+			log.Printf("Already running latest version (%s)", result.CurrentVersion)
+		}
 	}
 
 	// Get token from flag or env

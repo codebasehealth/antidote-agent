@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/codebasehealth/antidote-agent/internal/messages"
+	"github.com/codebasehealth/antidote-agent/internal/security"
 )
 
 const DefaultTimeout = 5 * time.Minute
@@ -22,26 +23,51 @@ type OutputHandler func(msg *messages.OutputMessage)
 // CompleteHandler is called when a command completes
 type CompleteHandler func(msg *messages.CompleteMessage)
 
+// RejectedHandler is called when a command is rejected by security validation
+type RejectedHandler func(msg *messages.RejectedMessage)
+
 // Executor manages command execution
 type Executor struct {
 	outputHandler   OutputHandler
 	completeHandler CompleteHandler
+	rejectedHandler RejectedHandler
+	validator       *security.Validator
 
 	running   map[string]context.CancelFunc
 	runningMu sync.Mutex
 }
 
 // New creates a new executor
-func New(outputHandler OutputHandler, completeHandler CompleteHandler) *Executor {
+func New(outputHandler OutputHandler, completeHandler CompleteHandler, rejectedHandler RejectedHandler, validator *security.Validator) *Executor {
 	return &Executor{
 		outputHandler:   outputHandler,
 		completeHandler: completeHandler,
+		rejectedHandler: rejectedHandler,
+		validator:       validator,
 		running:         make(map[string]context.CancelFunc),
 	}
 }
 
 // Execute runs a command from the cloud
 func (e *Executor) Execute(cmdMsg *messages.CommandMessage) error {
+	// Security validation
+	if e.validator != nil {
+		if err := e.validator.ValidateCommand(cmdMsg); err != nil {
+			log.Printf("Command %s rejected: %v", cmdMsg.ID, err)
+
+			// Send rejection message back to cloud
+			if e.rejectedHandler != nil {
+				code := "VALIDATION_ERROR"
+				if vErr, ok := err.(*security.ValidationError); ok {
+					code = vErr.Code
+				}
+				e.rejectedHandler(messages.NewRejectedMessage(cmdMsg.ID, code, err.Error()))
+			}
+
+			return err
+		}
+	}
+
 	// Determine timeout
 	timeout := DefaultTimeout
 	if cmdMsg.Timeout > 0 {
@@ -68,6 +94,14 @@ func (e *Executor) Execute(cmdMsg *messages.CommandMessage) error {
 	}()
 
 	return nil
+}
+
+// UpdateValidator updates the security validator with new app configs
+func (e *Executor) UpdateValidator(apps []messages.AppInfo) {
+	if e.validator != nil {
+		e.validator.UpdateApps(apps)
+		log.Printf("Security validator updated with %d apps", len(apps))
+	}
 }
 
 // Cancel cancels a running command
