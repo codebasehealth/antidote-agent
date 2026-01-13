@@ -11,21 +11,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codebasehealth/antidote-agent/internal/config"
 	"github.com/codebasehealth/antidote-agent/internal/messages"
 	"github.com/gorilla/websocket"
 )
 
 const (
 	// Version is the agent version
-	Version = "1.0.0"
+	Version = "2.0.0"
 
-	// StateDisconnected means the agent is not connected
+	// Connection states
 	StateDisconnected = "disconnected"
-	// StateConnecting means the agent is attempting to connect
-	StateConnecting = "connecting"
-	// StateConnected means the agent is connected and authenticated
-	StateConnected = "connected"
+	StateConnecting   = "connecting"
+	StateConnected    = "connected"
+
+	// Reconnection settings
+	InitialDelay = 1 * time.Second
+	MaxDelay     = 30 * time.Second
+	Multiplier   = 2.0
+
+	// Heartbeat interval
+	HeartbeatInterval = 30 * time.Second
 )
 
 // MessageHandler is called when a message is received
@@ -33,26 +38,28 @@ type MessageHandler func(msgType string, data []byte)
 
 // Manager manages the WebSocket connection to the server
 type Manager struct {
-	cfg      *config.Config
+	token    string
+	endpoint string
 	conn     *websocket.Conn
 	state    string
 	serverID string
 	handler  MessageHandler
 
-	sendCh   chan []byte
-	doneCh   chan struct{}
-	mu       sync.RWMutex
-	wg       sync.WaitGroup
+	sendCh chan []byte
+	doneCh chan struct{}
+	mu     sync.RWMutex
+	wg     sync.WaitGroup
 }
 
 // NewManager creates a new connection manager
-func NewManager(cfg *config.Config, handler MessageHandler) *Manager {
+func NewManager(token, endpoint string, handler MessageHandler) *Manager {
 	return &Manager{
-		cfg:     cfg,
-		state:   StateDisconnected,
-		handler: handler,
-		sendCh:  make(chan []byte, 100),
-		doneCh:  make(chan struct{}),
+		token:    token,
+		endpoint: endpoint,
+		state:    StateDisconnected,
+		handler:  handler,
+		sendCh:   make(chan []byte, 100),
+		doneCh:   make(chan struct{}),
 	}
 }
 
@@ -108,7 +115,7 @@ func (m *Manager) ServerID() string {
 func (m *Manager) connectionLoop(ctx context.Context) {
 	defer m.wg.Done()
 
-	delay := m.cfg.Connection.Reconnect.InitialDelay
+	delay := InitialDelay
 
 	for {
 		select {
@@ -137,15 +144,15 @@ func (m *Manager) connectionLoop(ctx context.Context) {
 			}
 
 			// Exponential backoff
-			delay = time.Duration(float64(delay) * m.cfg.Connection.Reconnect.Multiplier)
-			if delay > m.cfg.Connection.Reconnect.MaxDelay {
-				delay = m.cfg.Connection.Reconnect.MaxDelay
+			delay = time.Duration(float64(delay) * Multiplier)
+			if delay > MaxDelay {
+				delay = MaxDelay
 			}
 			continue
 		}
 
 		// Reset delay on successful connection
-		delay = m.cfg.Connection.Reconnect.InitialDelay
+		delay = InitialDelay
 
 		// Run the connection
 		m.runConnection(ctx)
@@ -159,9 +166,9 @@ func (m *Manager) connect(ctx context.Context) error {
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	log.Printf("Connecting to %s...", m.cfg.Connection.Endpoint)
+	log.Printf("Connecting to %s...", m.endpoint)
 
-	conn, _, err := dialer.DialContext(ctx, m.cfg.Connection.Endpoint, http.Header{})
+	conn, _, err := dialer.DialContext(ctx, m.endpoint, http.Header{})
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
@@ -173,17 +180,11 @@ func (m *Manager) connect(ctx context.Context) error {
 	// Send auth message
 	hostname, _ := os.Hostname()
 	authMsg := messages.NewAuthMessage(
-		m.cfg.Connection.Token,
+		m.token,
 		Version,
-		messages.ServerInfo{
-			Name:        m.cfg.Server.Name,
-			Environment: m.cfg.Server.Environment,
-			Hostname:    hostname,
-			OS:          runtime.GOOS,
-			Arch:        runtime.GOARCH,
-		},
-		[]string{"logs"},
-		m.cfg.GetActionNames(),
+		hostname,
+		runtime.GOOS,
+		runtime.GOARCH,
 	)
 
 	if err := m.sendMessage(authMsg); err != nil {
@@ -193,30 +194,45 @@ func (m *Manager) connect(ctx context.Context) error {
 
 	// Wait for auth response
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	_, data, err := conn.ReadMessage()
+	messageType, data, err := conn.ReadMessage()
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to read auth response: %w", err)
 	}
 	conn.SetReadDeadline(time.Time{})
 
-	authResp, err := messages.ParseAuthResponseMessage(data)
+	// Debug: log the raw response
+	log.Printf("Auth response received: messageType=%d, len=%d, data=%s", messageType, len(data), string(data))
+
+	msgType, err := messages.ParseMessage(data)
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to parse auth response: %w", err)
 	}
 
-	if authResp.Status != "ok" {
+	log.Printf("Parsed message type: %s", msgType)
+
+	if msgType == messages.TypeAuthError {
+		var authErr messages.AuthErrorMessage
+		json.Unmarshal(data, &authErr)
 		conn.Close()
-		return fmt.Errorf("auth failed: %s", authResp.Error)
+		return fmt.Errorf("auth failed: %s", authErr.Message)
 	}
 
+	if msgType != messages.TypeAuthOK {
+		conn.Close()
+		return fmt.Errorf("unexpected response: %s", msgType)
+	}
+
+	var authOK messages.AuthOKMessage
+	json.Unmarshal(data, &authOK)
+
 	m.mu.Lock()
-	m.serverID = authResp.ServerID
+	m.serverID = authOK.ServerID
 	m.mu.Unlock()
 
 	m.setState(StateConnected)
-	log.Printf("Connected! Server ID: %s", authResp.ServerID)
+	log.Printf("Connected! Server ID: %s", authOK.ServerID)
 
 	return nil
 }
@@ -224,7 +240,7 @@ func (m *Manager) connect(ctx context.Context) error {
 // runConnection handles the connection after authentication
 func (m *Manager) runConnection(ctx context.Context) {
 	// Start heartbeat
-	heartbeatTicker := time.NewTicker(m.cfg.Connection.Heartbeat)
+	heartbeatTicker := time.NewTicker(HeartbeatInterval)
 	defer heartbeatTicker.Stop()
 
 	// Start read goroutine

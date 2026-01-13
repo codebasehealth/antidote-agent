@@ -10,16 +10,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/codebasehealth/antidote-agent/internal/config"
 	"github.com/codebasehealth/antidote-agent/internal/connection"
 	"github.com/codebasehealth/antidote-agent/internal/health"
 	"github.com/codebasehealth/antidote-agent/internal/router"
 )
 
 var (
-	configPath  = flag.String("config", "", "Path to config file")
-	token       = flag.String("token", "", "Agent token (overrides config)")
-	endpoint    = flag.String("endpoint", "", "WebSocket endpoint (overrides config)")
+	token       = flag.String("token", "", "Agent token (or ANTIDOTE_TOKEN env)")
+	endpoint    = flag.String("endpoint", "", "WebSocket endpoint (or ANTIDOTE_ENDPOINT env)")
 	showVersion = flag.Bool("version", false, "Show version and exit")
 )
 
@@ -31,27 +29,28 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Get token from flag or env
+	agentToken := *token
+	if agentToken == "" {
+		agentToken = os.Getenv("ANTIDOTE_TOKEN")
+	}
+	if agentToken == "" {
+		log.Fatal("Token required: use --token flag or ANTIDOTE_TOKEN env")
+	}
+
+	// Get endpoint from flag or env
+	agentEndpoint := *endpoint
+	if agentEndpoint == "" {
+		agentEndpoint = os.Getenv("ANTIDOTE_ENDPOINT")
+	}
+	if agentEndpoint == "" {
+		agentEndpoint = "wss://antidote.codebasehealth.com/agent/ws"
+	}
+
 	// Setup logging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Starting antidote-agent...")
-
-	// Load config
-	cfg, err := loadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Apply command line overrides
-	if *token != "" {
-		cfg.Connection.Token = *token
-	}
-	if *endpoint != "" {
-		cfg.Connection.Endpoint = *endpoint
-	}
-
-	log.Printf("Server: %s (%s)", cfg.Server.Name, cfg.Server.Environment)
-	log.Printf("Endpoint: %s", cfg.Connection.Endpoint)
-	log.Printf("Actions: %v", cfg.GetActionNames())
+	log.Printf("Endpoint: %s", agentEndpoint)
 
 	// Create context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -59,17 +58,17 @@ func main() {
 
 	// Create connection manager
 	var msgRouter *router.Router
-	connMgr := connection.NewManager(cfg, func(msgType string, data []byte) {
+	connMgr := connection.NewManager(agentToken, agentEndpoint, func(msgType string, data []byte) {
 		if msgRouter != nil {
 			msgRouter.Handle(msgType, data)
 		}
 	})
 
 	// Create router (needs connection manager's send function)
-	msgRouter = router.NewRouter(cfg, connMgr.Send)
+	msgRouter = router.NewRouter(connMgr.Send)
 
 	// Create health monitor
-	healthMon := health.NewMonitor(cfg, connMgr.Send)
+	healthMon := health.NewMonitor(connMgr.Send)
 
 	// Start connection manager
 	if err := connMgr.Start(ctx); err != nil {
@@ -97,40 +96,4 @@ func main() {
 	connMgr.Stop()
 
 	log.Println("Shutdown complete")
-}
-
-func loadConfig() (*config.Config, error) {
-	path := *configPath
-
-	if path == "" {
-		var err error
-		path, err = config.FindConfigFile()
-		if err != nil {
-			// No config file found, check for required env vars
-			if os.Getenv("ANTIDOTE_TOKEN") == "" || os.Getenv("ANTIDOTE_ENDPOINT") == "" {
-				return nil, fmt.Errorf("no config file found and ANTIDOTE_TOKEN/ANTIDOTE_ENDPOINT not set")
-			}
-
-			// Create minimal config from env vars
-			return &config.Config{
-				Server: config.ServerConfig{
-					Name:        os.Getenv("ANTIDOTE_SERVER_NAME"),
-					Environment: os.Getenv("ANTIDOTE_ENVIRONMENT"),
-				},
-				Connection: config.ConnectionConfig{
-					Endpoint:  os.Getenv("ANTIDOTE_ENDPOINT"),
-					Token:     os.Getenv("ANTIDOTE_TOKEN"),
-					Heartbeat: 30 * time.Second,
-					Reconnect: config.ReconnectConfig{
-						InitialDelay: 1 * time.Second,
-						MaxDelay:     30 * time.Second,
-						Multiplier:   2.0,
-					},
-				},
-				Actions: make(map[string]config.Action),
-			}, nil
-		}
-	}
-
-	return config.Load(path)
 }

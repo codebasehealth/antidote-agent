@@ -2,12 +2,10 @@
 set -e
 
 # Antidote Agent Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/codebasehealth/antidote-agent/main/scripts/install.sh | bash
-# Or with token: curl -fsSL ... | ANTIDOTE_TOKEN=ant_xxx ANTIDOTE_ENDPOINT=wss://... bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/codebasehealth/antidote-agent/main/scripts/install.sh | ANTIDOTE_TOKEN=ant_xxx bash
 
 REPO="codebasehealth/antidote-agent"
 INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/antidote"
 BINARY_NAME="antidote-agent"
 
 # Colors
@@ -15,7 +13,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info() { echo -e "${BLUE}==>${NC} $1"; }
 success() { echo -e "${GREEN}==>${NC} $1"; }
@@ -75,126 +73,41 @@ install_binary() {
     success "Binary installed successfully!"
 }
 
-# Create config file
-create_config() {
-    if [ -f "${CONFIG_DIR}/antidote.yml" ]; then
-        warn "Config file already exists at ${CONFIG_DIR}/antidote.yml"
-        return
-    fi
-
-    # Prompt for values if not provided via env
+# Collect token
+collect_token() {
     if [ -z "$ANTIDOTE_TOKEN" ]; then
         echo ""
         read -p "Enter your Antidote token (ant_...): " ANTIDOTE_TOKEN
     fi
 
-    if [ -z "$ANTIDOTE_ENDPOINT" ]; then
-        ANTIDOTE_ENDPOINT="wss://antidote.codebasehealth.com/agent/ws"
-        read -p "Enter Antidote endpoint [$ANTIDOTE_ENDPOINT]: " INPUT_ENDPOINT
-        if [ -n "$INPUT_ENDPOINT" ]; then
-            ANTIDOTE_ENDPOINT="$INPUT_ENDPOINT"
-        fi
+    if [ -z "$ANTIDOTE_TOKEN" ]; then
+        error "Antidote token is required"
     fi
-
-    if [ -z "$SERVER_NAME" ]; then
-        SERVER_NAME=$(hostname)
-        read -p "Enter server name [$SERVER_NAME]: " INPUT_NAME
-        if [ -n "$INPUT_NAME" ]; then
-            SERVER_NAME="$INPUT_NAME"
-        fi
-    fi
-
-    if [ -z "$SERVER_ENV" ]; then
-        SERVER_ENV="production"
-        read -p "Enter environment [$SERVER_ENV]: " INPUT_ENV
-        if [ -n "$INPUT_ENV" ]; then
-            SERVER_ENV="$INPUT_ENV"
-        fi
-    fi
-
-    if [ -z "$APP_DIR" ]; then
-        APP_DIR="/var/www/html"
-        read -p "Enter app directory [$APP_DIR]: " INPUT_DIR
-        if [ -n "$INPUT_DIR" ]; then
-            APP_DIR="$INPUT_DIR"
-        fi
-    fi
-
-    info "Creating config directory..."
-    if [ -w "$(dirname $CONFIG_DIR)" ]; then
-        mkdir -p "$CONFIG_DIR"
-    else
-        sudo mkdir -p "$CONFIG_DIR"
-    fi
-
-    info "Creating config file..."
-    CONFIG_CONTENT="server:
-  name: \"${SERVER_NAME}\"
-  environment: \"${SERVER_ENV}\"
-
-connection:
-  endpoint: \"${ANTIDOTE_ENDPOINT}\"
-  token: \"${ANTIDOTE_TOKEN}\"
-  heartbeat: 30s
-  reconnect:
-    initial_delay: 1s
-    max_delay: 30s
-
-actions:
-  # Generic actions - customize for your stack
-  restart_app:
-    description: \"Restart the application\"
-    command: \"echo 'Configure this action for your app'\"
-    timeout: 60s
-    working_dir: \"${APP_DIR}\"
-
-  health_check:
-    description: \"Check application health\"
-    command: \"curl -sf http://localhost/health || curl -sf http://localhost:3000/health || echo 'OK'\"
-    timeout: 10s
-
-  # System actions
-  restart_nginx:
-    description: \"Restart Nginx\"
-    command: \"sudo systemctl restart nginx\"
-    timeout: 30s
-
-  restart_service:
-    description: \"Restart a systemd service\"
-    command: \"sudo systemctl restart \\\${SERVICE_NAME}\"
-    timeout: 30s
-
-  # Add your own actions below
-  # See: https://github.com/codebasehealth/antidote-agent#actions
-"
-
-    if [ -w "$CONFIG_DIR" ] 2>/dev/null; then
-        echo "$CONFIG_CONTENT" > "${CONFIG_DIR}/antidote.yml"
-    else
-        echo "$CONFIG_CONTENT" | sudo tee "${CONFIG_DIR}/antidote.yml" > /dev/null
-    fi
-
-    success "Config file created at ${CONFIG_DIR}/antidote.yml"
 }
 
 # Set up systemd service
 setup_systemd() {
     if [ "$OS" != "linux" ]; then
         warn "Systemd service setup is only available on Linux"
+        echo ""
+        echo "Run manually with:"
+        echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
         return
     fi
 
-    # Auto-setup in non-interactive mode (when ANTIDOTE_TOKEN was provided via env)
-    if [ -n "$NONINTERACTIVE" ]; then
-        SETUP_SERVICE="Y"
-    else
+    if [ -z "$NONINTERACTIVE" ]; then
         echo ""
         read -p "Set up systemd service to run agent on boot? [Y/n]: " SETUP_SERVICE
         SETUP_SERVICE=${SETUP_SERVICE:-Y}
+    else
+        SETUP_SERVICE="Y"
     fi
 
     if [[ ! "$SETUP_SERVICE" =~ ^[Yy]$ ]]; then
-        info "Skipping systemd setup. Run manually with: antidote-agent --config=/etc/antidote/antidote.yml"
+        info "Skipping systemd setup."
+        echo ""
+        echo "Run manually with:"
+        echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
         return
     fi
 
@@ -206,7 +119,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} --config=${CONFIG_DIR}/antidote.yml
+Environment=ANTIDOTE_TOKEN=${ANTIDOTE_TOKEN}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME}
 Restart=always
 RestartSec=5
 
@@ -227,7 +141,6 @@ WantedBy=multi-user.target
 
 # Main
 main() {
-    # Detect non-interactive mode (env vars provided)
     if [ -n "$ANTIDOTE_TOKEN" ]; then
         NONINTERACTIVE=1
     fi
@@ -246,23 +159,18 @@ main() {
     detect_platform
     get_latest_version
     install_binary
-    create_config
+    collect_token
     setup_systemd
 
     echo ""
     success "Antidote Agent installation complete!"
     echo ""
-    if [ -n "$NONINTERACTIVE" ] && [ "$OS" = "linux" ]; then
+    if [ "$OS" = "linux" ]; then
         echo "The agent is now running and will start automatically on boot."
         echo ""
         info "Useful commands:"
         echo "  sudo systemctl status antidote-agent   # Check status"
         echo "  sudo journalctl -u antidote-agent -f   # View logs"
-    else
-        echo "Next steps:"
-        echo "  1. Edit ${CONFIG_DIR}/antidote.yml to customize actions"
-        echo "  2. Ensure your server is registered in Antidote dashboard"
-        echo "  3. Start the agent or reboot to connect"
     fi
     echo ""
 }
