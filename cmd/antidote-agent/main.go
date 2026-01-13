@@ -13,12 +13,15 @@ import (
 	"github.com/codebasehealth/antidote-agent/internal/connection"
 	"github.com/codebasehealth/antidote-agent/internal/health"
 	"github.com/codebasehealth/antidote-agent/internal/router"
+	"github.com/codebasehealth/antidote-agent/internal/updater"
 )
 
 var (
 	token       = flag.String("token", "", "Agent token (or ANTIDOTE_TOKEN env)")
 	endpoint    = flag.String("endpoint", "", "WebSocket endpoint (or ANTIDOTE_ENDPOINT env)")
 	showVersion = flag.Bool("version", false, "Show version and exit")
+	selfUpdate  = flag.Bool("self-update", false, "Update to the latest version")
+	checkUpdate = flag.Bool("check-update", false, "Check if an update is available")
 )
 
 func main() {
@@ -26,6 +29,45 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("antidote-agent version %s\n", connection.Version)
+		os.Exit(0)
+	}
+
+	if *checkUpdate {
+		result, err := updater.CheckForUpdate()
+		if err != nil {
+			fmt.Printf("Error checking for updates: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Current version: %s\n", result.CurrentVersion)
+		fmt.Printf("Latest version:  %s\n", result.LatestVersion)
+		if result.UpdateAvailable {
+			fmt.Println("\nUpdate available! Run with --self-update to install.")
+		} else {
+			fmt.Println("\nYou're running the latest version.")
+		}
+		os.Exit(0)
+	}
+
+	if *selfUpdate {
+		fmt.Printf("Current version: %s\n", connection.Version)
+		fmt.Println("Checking for updates...")
+
+		result, err := updater.SelfUpdate()
+		if err != nil {
+			fmt.Printf("Update failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !result.UpdateAvailable {
+			fmt.Printf("Already running the latest version (%s)\n", result.CurrentVersion)
+			os.Exit(0)
+		}
+
+		if result.Updated {
+			fmt.Printf("Successfully updated to %s\n", result.LatestVersion)
+			fmt.Println("\nRestart the service to use the new version:")
+			fmt.Println("  sudo systemctl restart antidote-agent")
+		}
 		os.Exit(0)
 	}
 
