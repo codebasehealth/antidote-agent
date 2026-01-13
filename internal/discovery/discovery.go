@@ -13,6 +13,7 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
+	"gopkg.in/yaml.v3"
 )
 
 // Discover gathers information about the server
@@ -245,9 +246,11 @@ func discoverApps() []messages.AppInfo {
 	// Common app directories to check
 	searchPaths := []string{
 		"/home/forge",
+		"/home/deploy",
 		"/var/www",
 		"/srv",
 		"/app",
+		"/opt/apps",
 	}
 
 	for _, basePath := range searchPaths {
@@ -265,8 +268,20 @@ func discoverApps() []messages.AppInfo {
 				continue
 			}
 
-			appPath := filepath.Join(basePath, entry.Name())
-			if app := analyzeApp(appPath); app != nil {
+			projectDir := filepath.Join(basePath, entry.Name())
+
+			// Check for Forge/Capistrano-style deployment (with 'current' symlink)
+			currentPath := filepath.Join(projectDir, "current")
+			if info, err := os.Stat(currentPath); err == nil && info.IsDir() {
+				// Use the 'current' directory as the app path
+				if app := analyzeApp(currentPath); app != nil {
+					apps = append(apps, *app)
+				}
+				continue
+			}
+
+			// Otherwise check the directory itself
+			if app := analyzeApp(projectDir); app != nil {
 				apps = append(apps, *app)
 			}
 		}
@@ -280,27 +295,40 @@ func analyzeApp(path string) *messages.AppInfo {
 		Path: path,
 	}
 
-	// Detect framework
-	if _, err := os.Stat(filepath.Join(path, "artisan")); err == nil {
-		app.Framework = "laravel"
-	} else if _, err := os.Stat(filepath.Join(path, "package.json")); err == nil {
-		// Check for specific frameworks
-		if _, err := os.Stat(filepath.Join(path, "next.config.js")); err == nil {
-			app.Framework = "nextjs"
-		} else if _, err := os.Stat(filepath.Join(path, "nuxt.config.js")); err == nil {
-			app.Framework = "nuxt"
-		} else {
-			app.Framework = "node"
-		}
-	} else if _, err := os.Stat(filepath.Join(path, "Gemfile")); err == nil {
-		app.Framework = "rails"
-	} else if _, err := os.Stat(filepath.Join(path, "manage.py")); err == nil {
-		app.Framework = "django"
-	} else if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
-		app.Framework = "go"
+	// Check for antidote.yml first - this takes priority
+	configPath := filepath.Join(path, "antidote.yml")
+	if config := readAntidoteConfig(configPath); config != nil {
+		app.Config = config
+		app.Framework = config.App.Framework
 	} else {
-		// Not a recognized app
-		return nil
+		// Auto-detect framework if no config
+		if _, err := os.Stat(filepath.Join(path, "artisan")); err == nil {
+			app.Framework = "laravel"
+		} else if _, err := os.Stat(filepath.Join(path, "package.json")); err == nil {
+			// Check for specific frameworks
+			if _, err := os.Stat(filepath.Join(path, "next.config.js")); err == nil {
+				app.Framework = "nextjs"
+			} else if _, err := os.Stat(filepath.Join(path, "next.config.mjs")); err == nil {
+				app.Framework = "nextjs"
+			} else if _, err := os.Stat(filepath.Join(path, "next.config.ts")); err == nil {
+				app.Framework = "nextjs"
+			} else if _, err := os.Stat(filepath.Join(path, "nuxt.config.js")); err == nil {
+				app.Framework = "nuxt"
+			} else if _, err := os.Stat(filepath.Join(path, "nuxt.config.ts")); err == nil {
+				app.Framework = "nuxt"
+			} else {
+				app.Framework = "node"
+			}
+		} else if _, err := os.Stat(filepath.Join(path, "Gemfile")); err == nil {
+			app.Framework = "rails"
+		} else if _, err := os.Stat(filepath.Join(path, "manage.py")); err == nil {
+			app.Framework = "django"
+		} else if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+			app.Framework = "go"
+		} else {
+			// Not a recognized app and no antidote.yml
+			return nil
+		}
 	}
 
 	// Git info
@@ -311,6 +339,26 @@ func analyzeApp(path string) *messages.AppInfo {
 	}
 
 	return app
+}
+
+// readAntidoteConfig reads and parses an antidote.yml file
+func readAntidoteConfig(path string) *messages.AppConfig {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	var config messages.AppConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+
+	// Validate minimum required fields
+	if config.App.Name == "" || config.App.Framework == "" {
+		return nil
+	}
+
+	return &config
 }
 
 func getGitRemote(path string) string {

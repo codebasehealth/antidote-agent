@@ -97,11 +97,46 @@ type LanguageInfo struct {
 }
 
 type AppInfo struct {
-	Path      string `json:"path"`
-	Framework string `json:"framework,omitempty"` // laravel, rails, django, nextjs
-	GitRemote string `json:"git_remote,omitempty"`
-	GitBranch string `json:"git_branch,omitempty"`
-	GitCommit string `json:"git_commit,omitempty"`
+	Path      string     `json:"path"`
+	Framework string     `json:"framework,omitempty"` // laravel, rails, django, nextjs
+	GitRemote string     `json:"git_remote,omitempty"`
+	GitBranch string     `json:"git_branch,omitempty"`
+	GitCommit string     `json:"git_commit,omitempty"`
+	Config    *AppConfig `json:"config,omitempty"` // parsed from antidote.yml
+}
+
+// AppConfig represents the parsed antidote.yml configuration
+type AppConfig struct {
+	Version          int                       `json:"version" yaml:"version"`
+	App              AppConfigApp              `json:"app" yaml:"app"`
+	TrustLevel       string                    `json:"trust_level" yaml:"trust_level"`
+	Actions          map[string]AppConfigAction `json:"actions" yaml:"actions"`
+	ApprovalRequired []AppConfigApproval       `json:"approval_required" yaml:"approval_required"`
+	Deny             []string                  `json:"deny" yaml:"deny"`
+	Logs             []string                  `json:"logs" yaml:"logs"`
+	Health           *AppConfigHealth          `json:"health,omitempty" yaml:"health"`
+}
+
+type AppConfigApp struct {
+	Name      string `json:"name" yaml:"name"`
+	Framework string `json:"framework" yaml:"framework"`
+}
+
+type AppConfigAction struct {
+	Command string `json:"command" yaml:"command"`
+	Label   string `json:"label" yaml:"label"`
+	Icon    string `json:"icon,omitempty" yaml:"icon"`
+	Confirm bool   `json:"confirm,omitempty" yaml:"confirm"`
+}
+
+type AppConfigApproval struct {
+	Pattern string `json:"pattern" yaml:"pattern"`
+	Reason  string `json:"reason" yaml:"reason"`
+}
+
+type AppConfigHealth struct {
+	Endpoint string `json:"endpoint" yaml:"endpoint"`
+	Interval string `json:"interval" yaml:"interval"`
 }
 
 type DockerInfo struct {
