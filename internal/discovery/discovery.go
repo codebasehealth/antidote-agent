@@ -45,6 +45,16 @@ func Discover() *messages.DiscoveryMessage {
 	// Apps
 	msg.Apps = discoverApps()
 
+	// Log apps with configs
+	appsWithConfig := 0
+	for _, app := range msg.Apps {
+		if app.Config != nil {
+			appsWithConfig++
+			log.Printf("App %s has config: %+v", app.Path, app.Config.App)
+		}
+	}
+	log.Printf("Discovery complete: %d apps total, %d with config", len(msg.Apps), appsWithConfig)
+
 	// Docker
 	msg.Docker = discoverDocker()
 
@@ -301,6 +311,7 @@ func analyzeApp(path string) *messages.AppInfo {
 	if config := readAntidoteConfig(configPath); config != nil {
 		app.Config = config
 		app.Framework = config.App.Framework
+		log.Printf("Assigned config to app at %s: actions=%d, deny=%d", path, len(config.Actions), len(config.Deny))
 	} else {
 		// Auto-detect framework if no config
 		if _, err := os.Stat(filepath.Join(path, "artisan")); err == nil {
