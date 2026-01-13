@@ -85,13 +85,39 @@ collect_token() {
     fi
 }
 
+# Fetch signing key from Antidote Cloud
+fetch_signing_key() {
+    ANTIDOTE_API_URL="${ANTIDOTE_ENDPOINT:-https://antidote.codebasehealth.com}"
+    # Remove /agent/ws suffix if present (convert WebSocket URL to API URL)
+    ANTIDOTE_API_URL="${ANTIDOTE_API_URL%/agent/ws}"
+
+    info "Fetching signing key from ${ANTIDOTE_API_URL}..."
+
+    SIGNING_KEY_RESPONSE=$(curl -fsSL "${ANTIDOTE_API_URL}/api/antidote/signing-key" 2>/dev/null || echo "")
+
+    if [ -n "$SIGNING_KEY_RESPONSE" ]; then
+        ANTIDOTE_SIGNING_KEY=$(echo "$SIGNING_KEY_RESPONSE" | grep -o '"public_key":"[^"]*"' | sed 's/"public_key":"//;s/"$//')
+        if [ -n "$ANTIDOTE_SIGNING_KEY" ]; then
+            success "Signing key retrieved successfully"
+        else
+            warn "Could not parse signing key - command signing will be disabled"
+        fi
+    else
+        warn "Could not fetch signing key - command signing will be disabled"
+    fi
+}
+
 # Set up systemd service
 setup_systemd() {
     if [ "$OS" != "linux" ]; then
         warn "Systemd service setup is only available on Linux"
         echo ""
         echo "Run manually with:"
-        echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
+        if [ -n "$ANTIDOTE_SIGNING_KEY" ]; then
+            echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN ANTIDOTE_SIGNING_KEY=$ANTIDOTE_SIGNING_KEY antidote-agent"
+        else
+            echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
+        fi
         return
     fi
 
@@ -107,11 +133,27 @@ setup_systemd() {
         info "Skipping systemd setup."
         echo ""
         echo "Run manually with:"
-        echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
+        if [ -n "$ANTIDOTE_SIGNING_KEY" ]; then
+            echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN ANTIDOTE_SIGNING_KEY=$ANTIDOTE_SIGNING_KEY antidote-agent"
+        else
+            echo "  ANTIDOTE_TOKEN=$ANTIDOTE_TOKEN antidote-agent"
+        fi
         return
     fi
 
     SERVICE_FILE="/etc/systemd/system/antidote-agent.service"
+
+    # Build environment variables
+    ENV_VARS="Environment=ANTIDOTE_TOKEN=${ANTIDOTE_TOKEN}"
+    if [ -n "$ANTIDOTE_SIGNING_KEY" ]; then
+        ENV_VARS="${ENV_VARS}
+Environment=ANTIDOTE_SIGNING_KEY=${ANTIDOTE_SIGNING_KEY}"
+    fi
+    if [ -n "$ANTIDOTE_ENDPOINT" ]; then
+        ENV_VARS="${ENV_VARS}
+Environment=ANTIDOTE_ENDPOINT=${ANTIDOTE_ENDPOINT}"
+    fi
+
     SERVICE_CONTENT="[Unit]
 Description=Antidote Agent
 After=network.target
@@ -119,7 +161,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-Environment=ANTIDOTE_TOKEN=${ANTIDOTE_TOKEN}
+${ENV_VARS}
 ExecStart=${INSTALL_DIR}/${BINARY_NAME}
 Restart=always
 RestartSec=5
@@ -160,6 +202,7 @@ main() {
     get_latest_version
     install_binary
     collect_token
+    fetch_signing_key
     setup_systemd
 
     echo ""
