@@ -1,12 +1,14 @@
 package router
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/codebasehealth/antidote-agent/internal/discovery"
 	"github.com/codebasehealth/antidote-agent/internal/executor"
 	"github.com/codebasehealth/antidote-agent/internal/messages"
 	"github.com/codebasehealth/antidote-agent/internal/security"
+	"github.com/codebasehealth/antidote-agent/internal/signing"
 )
 
 // SendFunc is a function that sends a message
@@ -16,14 +18,27 @@ type SendFunc func(msg interface{}) error
 type Router struct {
 	executor  *executor.Executor
 	validator *security.Validator
+	verifier  *signing.Verifier
 	send      SendFunc
 }
 
 // NewRouter creates a new message router
-func NewRouter(send SendFunc) *Router {
+func NewRouter(send SendFunc, publicKey string) *Router {
 	r := &Router{
 		send:      send,
 		validator: security.NewValidator(),
+	}
+
+	// Initialize signature verifier
+	var err error
+	r.verifier, err = signing.NewVerifier(publicKey)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize signature verifier: %v", err)
+		log.Printf("Message signing verification is DISABLED")
+	} else if r.verifier.IsEnabled() {
+		log.Printf("Message signing verification is ENABLED")
+	} else {
+		log.Printf("Message signing verification is DISABLED (no public key configured)")
 	}
 
 	// Create executor with output/complete/rejected handlers and security validator
@@ -53,17 +68,69 @@ func (r *Router) Handle(msgType string, data []byte) {
 
 // handleCommand processes a command message
 func (r *Router) handleCommand(data []byte) {
+	// Verify signature if verifier is enabled
+	if r.verifier != nil && r.verifier.IsEnabled() {
+		signedCmd, err := r.verifier.VerifyCommand(data)
+		if err != nil {
+			log.Printf("SECURITY: Command signature verification failed: %v", err)
+
+			// Try to extract command ID for rejection message
+			cmdID := extractCommandID(data)
+			if cmdID != "" {
+				r.handleRejected(messages.NewRejectedMessage(
+					cmdID,
+					"SIGNATURE_INVALID",
+					err.Error(),
+				))
+			}
+			return
+		}
+
+		log.Printf("Command %s signature verified", signedCmd.ID)
+
+		// Convert SignedCommand to CommandMessage
+		cmdMsg := &messages.CommandMessage{
+			Type:       signedCmd.Type,
+			ID:         signedCmd.ID,
+			Command:    signedCmd.Command,
+			WorkingDir: signedCmd.WorkingDir,
+			Env:        signedCmd.Env,
+			Timeout:    signedCmd.Timeout,
+		}
+
+		log.Printf("Received command %s: %s", cmdMsg.ID, cmdMsg.Command)
+
+		if err := r.executor.Execute(cmdMsg); err != nil {
+			log.Printf("Failed to execute command: %v", err)
+		}
+		return
+	}
+
+	// No signature verification - parse normally
 	cmdMsg, err := messages.ParseCommandMessage(data)
 	if err != nil {
 		log.Printf("Failed to parse command message: %v", err)
 		return
 	}
 
-	log.Printf("Received command %s: %s", cmdMsg.ID, cmdMsg.Command)
+	log.Printf("Received command %s: %s (unsigned)", cmdMsg.ID, cmdMsg.Command)
 
 	if err := r.executor.Execute(cmdMsg); err != nil {
 		log.Printf("Failed to execute command: %v", err)
 	}
+}
+
+// extractCommandID tries to extract the command ID from raw JSON data
+func extractCommandID(data []byte) string {
+	// Simple extraction for rejection messages
+	type idOnly struct {
+		ID string `json:"id"`
+	}
+	var msg idOnly
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return ""
+	}
+	return msg.ID
 }
 
 // handleDiscover runs server discovery and sends results

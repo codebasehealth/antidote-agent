@@ -19,6 +19,7 @@ import (
 var (
 	token       = flag.String("token", "", "Agent token (or ANTIDOTE_TOKEN env)")
 	endpoint    = flag.String("endpoint", "", "WebSocket endpoint (or ANTIDOTE_ENDPOINT env)")
+	signingKey  = flag.String("signing-key", "", "Public key for message signing verification (or ANTIDOTE_SIGNING_KEY env)")
 	showVersion = flag.Bool("version", false, "Show version and exit")
 	selfUpdate  = flag.Bool("self-update", false, "Update to the latest version")
 	checkUpdate = flag.Bool("check-update", false, "Check if an update is available")
@@ -121,6 +122,12 @@ func main() {
 		agentEndpoint = "wss://antidote.codebasehealth.com/agent/ws"
 	}
 
+	// Get signing key from flag or env (optional - if not set, signing verification is disabled)
+	signingPublicKey := *signingKey
+	if signingPublicKey == "" {
+		signingPublicKey = os.Getenv("ANTIDOTE_SIGNING_KEY")
+	}
+
 	// Setup logging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Starting antidote-agent...")
@@ -138,8 +145,8 @@ func main() {
 		}
 	})
 
-	// Create router (needs connection manager's send function)
-	msgRouter = router.NewRouter(connMgr.Send)
+	// Create router (needs connection manager's send function and optional signing key)
+	msgRouter = router.NewRouter(connMgr.Send, signingPublicKey)
 
 	// Create health monitor
 	healthMon := health.NewMonitor(connMgr.Send)
